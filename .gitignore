@@ -1,0 +1,23 @@
+# Node/Vite frontend
+node_modules/
+dist/
+
+# Backend
+backend/node_modules/
+backend/dist/
+backend/prisma/dev.db*
+
+# Env files
+.env
+backend/.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

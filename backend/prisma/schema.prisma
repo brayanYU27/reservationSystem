@@ -1,0 +1,403 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USUARIOS
+// ============================================
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  firstName     String
+  lastName      String
+  phone         String?
+  avatar        String?
+  role          UserRole  @default(CLIENT)
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relaciones
+  ownedBusiness   Business?      @relation("BusinessOwner")
+  employeeProfile Employee?
+  appointments    Appointment[]
+  reviews         Review[]
+  notifications   Notification[]
+
+  @@index([email])
+}
+
+enum UserRole {
+  CLIENT
+  BUSINESS_OWNER
+  EMPLOYEE
+  ADMIN
+}
+
+// ============================================
+// NEGOCIOS (TENANTS)
+// ============================================
+model Business {
+  id          String   @id @default(cuid())
+  tenantId    String   @unique @default(cuid())
+  ownerId     String   @unique
+  name        String
+  slug        String   @unique
+  category    Category
+  description String   
+  logo        String?
+  coverImage  String?
+
+  // Ubicación
+  address    String
+  city       String
+  state      String
+  postalCode String
+  latitude   Float?
+  longitude  Float?
+
+  // Contacto
+  phone    String
+  email    String
+  whatsapp String?
+  website  String?
+
+  // Redes sociales (JSON)
+  socialMedia Json?
+
+  // Horarios (JSON array)
+  workingHours Json
+
+  // Configuración (JSON)
+  settings Json
+  
+  // FAQs (JSON array)
+  faqs     Json?
+
+  // Métricas
+  rating            Float   @default(0)
+  totalReviews      Int     @default(0)
+  totalAppointments Int     @default(0)
+  timezone          String  @default("America/Mexico_City")
+
+  // Estado
+  isActive   Boolean @default(true)
+  isVerified Boolean @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relaciones
+  owner         User           @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  subscription  Subscription?
+  services      Service[]
+  employees     Employee[]
+  appointments  Appointment[]
+  reviews       Review[]
+  gallery       Gallery[]
+
+  @@index([slug])
+  @@index([city, category])
+  @@index([tenantId])
+}
+
+enum Category {
+  BARBERSHOP
+  SALON
+  SPA
+  NAILS
+  BEAUTY
+  OTHER
+}
+
+// ============================================
+// SUSCRIPCIONES
+// ============================================
+model Subscription {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  tier       Tier     @default(FREE)
+  status     SubStatus @default(TRIALING)
+
+  // Facturación
+  price        Float
+  currency     String  @default("MXN")
+  billingCycle Cycle   @default(MONTHLY)
+
+  // Stripe
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+
+  // Fechas
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  trialEnd           DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Límites (JSON)
+  limits Json
+
+  // Relaciones
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
+}
+
+enum Tier {
+  FREE
+  BASIC
+  PREMIUM
+  ENTERPRISE
+}
+
+enum SubStatus {
+  ACTIVE
+  CANCELLED
+  PAST_DUE
+  TRIALING
+}
+
+enum Cycle {
+  MONTHLY
+  YEARLY
+}
+
+// ============================================
+// SERVICIOS
+// ============================================
+model Service {
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  description String   
+  category    String
+  duration    Int      // minutos
+  price       Float
+  currency    String   @default("MXN")
+  image       String?
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  employees    Employee[]    @relation("EmployeeServices")
+
+  @@index([businessId])
+  @@index([isActive])
+}
+
+// ============================================
+// EMPLEADOS
+// ============================================
+model Employee {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  businessId  String
+  position    String
+  bio         String?
+  specialties String   // JSON string array
+  avatar      String?
+
+  // Horarios personalizados (JSON array, opcional)
+  workingHours Json?
+
+  // Métricas
+  rating            Float @default(0)
+  totalAppointments Int   @default(0)
+
+  // Estado
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  services     Service[]     @relation("EmployeeServices")
+  appointments Appointment[]
+
+  @@index([businessId])
+  @@index([userId])
+}
+
+// ============================================
+// CITAS/RESERVAS
+// ============================================
+model Appointment {
+  id         String    @id @default(cuid())
+  businessId String
+  clientId   String?
+  employeeId String?
+  serviceId  String
+
+  // Guest Info
+  guestName  String?
+  guestEmail String?
+  guestPhone String?
+
+  // Fecha y hora
+  date      DateTime
+  startTime String   // "14:30"
+  endTime   String   // "15:30"
+  duration  Int      // minutos
+
+  // Estado
+  status AppointmentStatus @default(PENDING)
+
+  // Notas
+  notes         String? 
+  clientNotes   String? 
+  internalNotes String? 
+
+  // Pago
+  price         Float
+  currency      String  @default("MXN")
+  paymentMethod String?
+  isPaid        Boolean @default(false)
+
+  // Confirmación y recordatorios
+  confirmedAt     DateTime?
+  reminderSentAt  DateTime?
+
+  // Auditoría
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  cancelledAt DateTime?
+  completedAt DateTime?
+
+  // Relaciones
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  client   User?     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  service  Service   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  review   Review?
+
+  @@index([businessId])
+  @@index([clientId])
+  @@index([employeeId])
+  @@index([date])
+  @@index([status])
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  IN_PROGRESS
+  CHECKED_IN
+}
+
+// ============================================
+// RESEÑAS
+// ============================================
+model Review {
+  id            String   @id @default(cuid())
+  businessId    String
+  clientId      String
+  appointmentId String?  @unique
+  rating        Int      // 1-5
+  comment       String?  
+  
+  // Respuesta del negocio (JSON)
+  response Json?
+
+  isVerified Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relaciones
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  client      User         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([clientId])
+  @@index([rating])
+}
+
+// ============================================
+// NOTIFICACIONES
+// ============================================
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  actionUrl String?          // URL to navigate when clicked
+  icon      String?          // Icon name or emoji
+  data      Json?            // Additional data (appointmentId, etc.)
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  expiresAt DateTime?        // Optional expiration
+
+  // Relaciones
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  APPOINTMENT_CONFIRMED
+  APPOINTMENT_REMINDER
+  APPOINTMENT_CANCELLED
+  APPOINTMENT_RESCHEDULED
+  NEW_APPOINTMENT        // For business owners
+  REVIEW_RECEIVED
+  REVIEW_RESPONSE
+  SYSTEM_ANNOUNCEMENT
+}
+
+// ============================================
+// GALERÍA
+// ============================================
+model Gallery {
+  id          String   @id @default(cuid())
+  businessId  String
+  url         String
+  title       String?
+  description String?
+  likes       Int      @default(0)
+  isFeatured  Boolean  @default(false)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([isFeatured])
+}
+
+// ============================================
+// REFRESH TOKENS (para JWT)
+// ============================================
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+}
