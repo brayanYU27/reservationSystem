@@ -117,3 +117,25 @@ export const updateEmployeeSchema = z.object({
   specialties: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
 });
+
+// Service schemas
+export const createServiceSchema = z.object({
+  businessId: z.string().cuid('businessId inválido'),
+  name: z.string().min(2, 'El nombre es requerido'),
+  description: z.string().min(5, 'La descripción es requerida'),
+  category: z.string().min(2, 'La categoría es requerida'),
+  duration: z.coerce.number().int('La duración debe ser un número entero').min(5, 'Duración mínima: 5 min').max(480, 'Duración máxima: 480 min'),
+  price: z.coerce.number().min(0, 'El precio no puede ser negativo').max(10000, 'El precio máximo permitido es 10000'),
+  image: z.string().url('URL inválida').optional(),
+});
+
+export const updateServiceSchema = z.object({
+  businessId: z.string().cuid('businessId inválido'),
+  name: z.string().min(2, 'El nombre es requerido').optional(),
+  description: z.string().min(5, 'La descripción es requerida').optional(),
+  category: z.string().min(2, 'La categoría es requerida').optional(),
+  duration: z.coerce.number().int('La duración debe ser un número entero').min(5, 'Duración mínima: 5 min').max(480, 'Duración máxima: 480 min').optional(),
+  price: z.coerce.number().min(0, 'El precio no puede ser negativo').max(10000, 'El precio máximo permitido es 10000').optional(),
+  image: z.string().url('URL inválida').optional(),
+  isActive: z.boolean().optional(),
+});

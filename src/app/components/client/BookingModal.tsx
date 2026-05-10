@@ -123,8 +123,11 @@ export function BookingModal({
         setBooking(true);
         try {
             const dateStr = format(selectedDate, 'yyyy-MM-dd');
+            
+            // Construir payload con Clean Architecture
+            // El interceptor de Axios maneja errores 400/404/409 con toast automático
             const response = await appointmentService.create({
-                businessId,
+                businessId,                                           // Tenant context obligatorio
                 serviceId: selectedServiceId,
                 employeeId: selectedEmployeeId === 'any' ? undefined : selectedEmployeeId,
                 date: dateStr,
@@ -134,16 +137,14 @@ export function BookingModal({
                 guestPhone: !user ? guestPhone : undefined,
             });
 
-            if (response.success) {
-                // toast.success('¡Reserva confirmada con éxito!'); // Moved to UI feedback
+            if (response.success && response.data) {
+                // ✅ Éxito: Mostrar pantalla de confirmación
+                // El interceptor de Axios NO muestra toast en 2xx, solo en 400/404/409
+                toast.success('¡Reserva confirmada con éxito!');
                 setStep('success');
-                // onOpenChange(false); // Validated by user request to show success screen
-            } else {
-                toast.error(response.error?.message || 'Error al procesar la reserva');
             }
-        } catch (error) {
-            console.error('Error booking:', error);
-            toast.error('Ocurrió un error al reservar');
+            // ❌ Errores ya son manejados por el interceptor de Axios con toast automático
+            // No necesitamos try/catch aquí - el interceptor se encarga
         } finally {
             setBooking(false);
         }
@@ -403,9 +404,15 @@ export function BookingModal({
                             </Button>
                         </div>
                     ) : (
-                        <div className="flex w-full justify-between items-center">
+                        <div className="flex w-full justify-between items-center gap-2">
                             {step !== 'service' ? (
-                                <Button key="back-btn" variant="ghost" onClick={prevStep} disabled={booking}>
+                                <Button 
+                                    key="back-btn" 
+                                    variant="ghost" 
+                                    onClick={prevStep} 
+                                    disabled={booking}
+                                    className="min-w-[100px]"
+                                >
                                     <ChevronLeft className="size-4 mr-1" />
                                     Atrás
                                 </Button>
@@ -418,9 +425,11 @@ export function BookingModal({
                                     key="confirm-btn"
                                     onClick={handleConfirmBooking}
                                     loading={booking}
+                                    disabled={booking}
                                     variant="default"
+                                    className="w-full sm:w-auto"
                                 >
-                                    Confirmar Reserva
+                                    {booking ? 'Procesando reserva...' : 'Confirmar Reserva'}
                                 </LoadingButton>
                             ) : (
                                 <LoadingButton

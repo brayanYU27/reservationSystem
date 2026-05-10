@@ -169,11 +169,13 @@ export interface Service {
   duration: number; // minutos
   price: number;
   currency: string;
-  image?: string;
+  image: string | null;
   isActive: boolean;
   order: number; // Para ordenar en la UI
   createdAt: Date;
   updatedAt: Date;
+  // Dominio backend
+  appointmentsCount?: number;
 }
 
 // ============================================
@@ -184,19 +186,20 @@ export interface Employee {
   userId: string; // Referencia al User
   businessId: string;
   position: string;
-  bio?: string;
+  bio: string | null;
   specialties: string[];
-  avatar?: string;
+  avatar: string | null;
 
   // Horarios personalizados
-  workingHours?: BusinessHours[];
+  workingHours: unknown | null;
 
-  // Servicios que ofrece
-  services: string[]; // IDs de servicios
+  // Compat UI legacy
+  services?: string[]; // IDs de servicios
 
   // Métricas
   rating: number;
   totalAppointments: number;
+  appointmentsCount?: number;
 
   isActive: boolean;
   createdAt: Date;
@@ -204,12 +207,13 @@ export interface Employee {
 
   // Relations
   user?: {
+    id: string;
     firstName: string;
     lastName: string;
     email: string;
-    phone?: string;
-    avatar?: string;
-  };
+    phone: string | null;
+    avatar: string | null;
+  } | null;
 }
 
 // ============================================
@@ -218,9 +222,14 @@ export interface Employee {
 export interface Appointment {
   id: string;
   businessId: string;
-  clientId: string;
-  employeeId?: string; // Opcional si no hay preferencia
+  clientId: string | null;
+  employeeId: string | null;
   serviceId: string;
+
+  // Guest info
+  guestName: string | null;
+  guestEmail: string | null;
+  guestPhone: string | null;
 
   // Fecha y hora
   date: Date;
@@ -232,49 +241,42 @@ export interface Appointment {
   status: AppointmentStatus;
 
   // Notas
-  notes?: string;
-  clientNotes?: string;
-  internalNotes?: string;
+  notes: string | null;
+  clientNotes: string | null;
+  internalNotes: string | null;
 
   // Pago
   price: number;
   currency: string;
-  paymentMethod?: PaymentMethod;
+  paymentMethod: string | null;
   isPaid: boolean;
 
   // Confirmación y recordatorios
-  confirmedAt?: Date;
-  reminderSentAt?: Date;
+  confirmedAt: Date | null;
+  reminderSentAt: Date | null;
 
   // Audit
   createdAt: Date;
   updatedAt: Date;
-  cancelledAt?: Date;
-  completedAt?: Date;
+  cancelledAt: Date | null;
+  completedAt: Date | null;
 
-  // Relations (populated)
+  // Relations (alineadas con dominio backend)
   business?: {
+    id: string;
     name: string;
-    logo?: string;
     address: string;
     city: string;
+    ownerId: string;
   };
-  service?: {
-    name: string;
-    duration: number;
-    price: number;
-  };
+  service?: Service;
   client?: {
     firstName: string;
     lastName: string;
     email: string;
-    phone?: string;
-    avatar?: string;
-  };
-  employee?: {
-    name: string; // or user.firstName + lastName
-    avatar?: string;
-  };
+    phone: string | null;
+  } | null;
+  employee?: Employee | null;
 }
 
 export interface AppointmentSummary {

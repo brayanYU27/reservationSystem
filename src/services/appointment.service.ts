@@ -51,6 +51,11 @@ export const appointmentService = {
     return apiClient.get<Appointment[]>(`/appointments?${params.toString()}`);
   },
 
+  // Alias explícito para tipado/autocompletado en UI
+  async getAppointments(filters: AppointmentFilters): Promise<ApiResponse<Appointment[]>> {
+    return this.list(filters);
+  },
+
   // Obtener mis citas (como cliente)
   async getMyAppointments(filters?: Partial<AppointmentFilters>): Promise<ApiResponse<Appointment[]>> {
     const params = new URLSearchParams();

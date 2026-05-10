@@ -1,6 +1,41 @@
 import { apiClient } from '@/lib/api-client';
 import type { ApiResponse } from '@/types';
 
+// ============================================================
+// Tipos para el módulo de analíticas (Clean Architecture)
+// ============================================================
+export interface AppointmentStatusCount {
+  status: string;
+  count: number;
+}
+
+export interface TopServiceStats {
+  serviceId: string;
+  serviceName: string;
+  bookings: number;
+  revenue: number;
+}
+
+export interface BusinessStatsMetrics {
+  completionRate: number;
+  cancellationRate: number;
+  averageRevenuePerCompletedAppointment: number;
+}
+
+export interface BusinessStatsData {
+  businessId: string;
+  dateFrom: string;
+  dateTo: string;
+  totalRevenue: number;
+  totalAppointments: number;
+  completedAppointments: number;
+  cancelledAppointments: number;
+  appointmentsByStatus: AppointmentStatusCount[];
+  topService: TopServiceStats | null;
+  generatedAt: string;
+  metrics: BusinessStatsMetrics;
+}
+
 interface AnalyticsSummary {
   revenue: {
     total: number;
@@ -79,6 +114,17 @@ export const analyticsService = {
   ): Promise<ApiResponse<TopEmployee[]>> {
     return apiClient.get<TopEmployee[]>(
       `/businesses/${businessId}/analytics/top-employees?period=${period}&limit=${limit}`
+    );
+  },
+
+  // ✅ Clean Architecture: GetBusinessStatsUseCase
+  async getBusinessStats(
+    businessId: string,
+    dateFrom: string,
+    dateTo: string
+  ): Promise<ApiResponse<BusinessStatsData>> {
+    return apiClient.get<BusinessStatsData>(
+      `/analytics/business/${businessId}/stats?dateFrom=${dateFrom}&dateTo=${dateTo}`
     );
   },
 };

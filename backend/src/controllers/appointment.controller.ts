@@ -1,12 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { EmailService } from '../services/email.service';
 import { NotificationService } from '../services/notification.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { prisma } from '../config/database.js';
+import { container } from '../infrastructure/container.js';
+import { getRequiredBusinessId } from '../middleware/tenant.js';
 
-const prisma = new PrismaClient();
+const { createAppointmentUseCase } = container.useCases;
 
 // Schema para validación
 const createAppointmentSchema = z.object({
@@ -25,8 +27,10 @@ const createAppointmentSchema = z.object({
 // POST /api/appointments
 export const createAppointment = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const userId = (req as any).userId;
+        const userId = (req as any).userId as string | undefined;
+        const actorBusinessId = (req as any).user?.businessId as string | undefined;
         const data = createAppointmentSchema.parse(req.body);
+        const businessId = getRequiredBusinessId(req);
 
         // If no user, require guest details
         if (!userId) {
@@ -38,125 +42,18 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
             }
         }
 
-        // 1. Verificar disponibilidad (re-validación por seguridad)
-        // Para simplificar, asumimos que el frontend ya validó, pero en producción
-        // deberíamos checar doble reserva aquí.
-
-        // 2. Obtener duración del servicio
-        const service = await prisma.service.findUnique({
-            where: { id: data.serviceId },
-        });
-
-        if (!service) {
-            return res.status(404).json({ success: false, message: 'Servicio no encontrado' });
-        }
-
-        // 4. Asignar empleado si no se seleccionó
-        let employeeId = data.employeeId;
-        const [hours, minutes] = data.startTime.split(':').map(Number);
-        const startDate = new Date(data.date);
-
-        // Ajuste de zona horaria: data.date suele ser YYYY-MM-DD. 
-        // Al hacer new Date(data.date) es UTC. 
-        // Para comparar con horarios de base de datos que están en UTC, está bien.
-        // Pero para setHours, debemos usar setUTCHours para ser consistentes con la lógica de availability.
-        startDate.setUTCHours(hours, minutes, 0, 0);
-
-        const endDate = new Date(startDate.getTime() + service.duration * 60000);
-        const endTime = `${endDate.getUTCHours().toString().padStart(2, '0')}:${endDate.getUTCMinutes().toString().padStart(2, '0')}`;
-
-
-        if (!employeeId) {
-            // Buscar un empleado disponible que realice este servicio
-            const activeEmployees = await prisma.employee.findMany({
-                where: {
-                    businessId: data.businessId,
-                    isActive: true,
-                },
-                select: { id: true }
-            });
-
-            if (activeEmployees.length === 0) {
-                return res.status(400).json({ success: false, message: 'No hay empleados disponibles' });
-            }
-
-            // Buscar conflictos para TODOS los empleados en este horario
-            const conflicts = await prisma.appointment.findMany({
-                where: {
-                    businessId: data.businessId,
-                    status: { not: 'CANCELLED' },
-                    date: {
-                        gte: new Date(new Date(data.date).setUTCHours(0, 0, 0, 0)), // Start of day UTC
-                        lte: new Date(new Date(data.date).setUTCHours(23, 59, 59, 999)) // End of day UTC
-                    },
-                    OR: [
-                        {
-                            startTime: { lte: data.startTime },
-                            endTime: { gt: data.startTime }
-                        },
-                        {
-                            startTime: { lt: endTime },
-                            endTime: { gte: endTime }
-                        },
-                        {
-                            startTime: { gte: data.startTime },
-                            endTime: { lte: endTime }
-                        }
-                    ]
-                },
-                select: { employeeId: true }
-            });
-
-            const busyEmployeeIds = new Set(conflicts.map(c => c.employeeId));
-
-            // Encontrar el primer empleado que NO esté ocupado
-            const availableEmployee = activeEmployees.find(emp => !busyEmployeeIds.has(emp.id));
-
-            if (availableEmployee) {
-                employeeId = availableEmployee.id;
-            } else {
-                return res.status(400).json({ success: false, message: 'No hay empleados disponibles en este horario (cupo lleno)' });
-            }
-        }
-
-        if (!employeeId) {
-            return res.status(400).json({ success: false, message: 'Error interno asignando empleado' });
-        }
-
-        // 5. Crear la cita
-        const appointmentData: any = {
-            businessId: data.businessId,
+        const appointment = await createAppointmentUseCase.execute({
+            businessId,
             serviceId: data.serviceId,
-            employeeId: employeeId,
-            date: new Date(data.date),
+            employeeId: data.employeeId,
+            date: data.date,
             startTime: data.startTime,
-            endTime: endTime,
-            status: 'PENDING',
             clientNotes: data.clientNotes,
-            price: service.price,
-            duration: service.duration,
-        };
-
-        if (userId) {
-            appointmentData.clientId = userId;
-        } else {
-            appointmentData.guestName = data.guestName;
-            appointmentData.guestEmail = data.guestEmail;
-            appointmentData.guestPhone = data.guestPhone;
-        }
-
-        const appointment = await prisma.appointment.create({
-            data: appointmentData,
-            include: {
-                service: true,
-                employee: {
-                    include: { user: true }
-                },
-                business: true,
-                client: {
-                    select: { email: true, firstName: true, lastName: true, phone: true }
-                }
-            }
+            clientId: userId,
+            guestName: data.guestName,
+            guestEmail: data.guestEmail,
+            guestPhone: data.guestPhone,
+            actorBusinessId,
         });
 
         // Send email notifications

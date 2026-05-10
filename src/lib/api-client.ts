@@ -1,3 +1,5 @@
+import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import { toast } from 'sonner';
 import type {
   ApiResponse,
   AuthTokens,
@@ -10,12 +12,80 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 class ApiClient {
   private baseURL: string;
+  private http: AxiosInstance;
   private tokens: AuthTokens | null = null;
   private inflightGets = new Map<string, Promise<ApiResponse<unknown>>>();
+  private refreshPromise: Promise<boolean> | null = null;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
+    this.http = axios.create({
+      baseURL: this.baseURL,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
     this.loadTokens();
+    this.setupInterceptors();
+  }
+
+  private setupInterceptors() {
+    this.http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+      if (this.tokens?.accessToken) {
+        config.headers.set('Authorization', `Bearer ${this.tokens.accessToken}`);
+      }
+
+      if (config.data instanceof FormData) {
+        config.headers.delete('Content-Type');
+      }
+
+      return config;
+    });
+
+    this.http.interceptors.response.use(
+      (response) => response,
+      async (error: AxiosError<any>) => {
+        const status = error.response?.status;
+        const data = error.response?.data;
+        const backendMessage =
+          data?.error?.message ||
+          data?.message ||
+          error.message ||
+          'Ocurrió un error inesperado';
+
+        if (status === 400 || status === 404 || status === 409) {
+          toast.error(backendMessage);
+        }
+
+        if (status === 401 && this.tokens?.refreshToken) {
+          const originalConfig = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
+          const isRefreshRequest = originalConfig?.url?.includes('/auth/refresh');
+
+          if (originalConfig && !originalConfig._retry && !isRefreshRequest) {
+            originalConfig._retry = true;
+
+            const refreshed = await this.getOrCreateRefreshPromise();
+            if (refreshed && this.tokens?.accessToken) {
+              originalConfig.headers.set('Authorization', `Bearer ${this.tokens.accessToken}`);
+              return this.http.request(originalConfig);
+            }
+          }
+        }
+
+        // Importante: no tragarse el error, dejar que siga propagando.
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  private async getOrCreateRefreshPromise(): Promise<boolean> {
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.refreshToken().finally(() => {
+        this.refreshPromise = null;
+      });
+    }
+
+    return this.refreshPromise;
   }
 
   private loadTokens() {
@@ -46,69 +116,41 @@ class ApiClient {
     options: RequestInit = {},
     dedupeGet: boolean = true
   ): Promise<ApiResponse<T>> {
-    const isFormData = options.body instanceof FormData;
-
-    const headers: HeadersInit = {
-      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-      ...options.headers,
-    };
-
-    if (this.tokens?.accessToken) {
-      // @ts-ignore - HeadersInit type is complex, but this assignment is valid
-      headers['Authorization'] = `Bearer ${this.tokens.accessToken}`;
-    }
-
     const method = (options.method || 'GET').toUpperCase();
-    const authHeader = typeof headers === 'object' && 'Authorization' in headers ? String((headers as any).Authorization) : '';
-    const dedupeKey = `${method}:${endpoint}:${authHeader}`;
+    const dedupeKey = `${method}:${endpoint}:${this.tokens?.accessToken || ''}`;
 
     const doRequest = async (): Promise<ApiResponse<T>> => {
       try {
-        const response = await fetch(`${this.baseURL}${endpoint}`, {
-          ...options,
-          headers,
+        const response = await this.http.request({
+          url: endpoint,
+          method: method as any,
+          data: options.body instanceof FormData
+            ? options.body
+            : (typeof options.body === 'string' ? JSON.parse(options.body) : options.body),
+          headers: options.headers as any,
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          // Si es 401, intentar refrescar el token
-          if (response.status === 401 && this.tokens?.refreshToken) {
-            // Evitar loop infinito si ya estamos intentando refrescar
-            const isRefreshRequest = endpoint.includes('/auth/refresh');
-            if (isRefreshRequest) {
-              return {
-                success: false,
-                error: {
-                  code: 'UNAUTHORIZED',
-                  message: 'Session expired',
-                }
-              };
-            }
-
-            const refreshed = await this.refreshToken();
-            if (refreshed) {
-              // Reintentar la petición original (sin dedupe para evitar auto-referencia)
-              return this.request<T>(endpoint, options, false);
-            }
-          }
-
-          return {
-            success: false,
-            error: {
-              code: `HTTP_${response.status}`,
-              message: data.message || data.error?.message || 'Error en la petición',
-              details: data,
-            },
-          };
-        }
+        const data = response.data;
 
         return {
           success: true,
           data: data.data || data,
           meta: data.meta,
         };
-      } catch (error) {
+      } catch (error: unknown) {
+        if (axios.isAxiosError(error)) {
+          const status = error.response?.status;
+          const payload = error.response?.data;
+          return {
+            success: false,
+            error: {
+              code: payload?.error?.code || `HTTP_${status || 500}`,
+              message: payload?.error?.message || payload?.message || error.message || 'Error en la petición',
+              details: payload,
+            },
+          };
+        }
+
         return {
           success: false,
           error: {
@@ -199,21 +241,17 @@ class ApiClient {
     if (!this.tokens?.refreshToken) return false;
 
     try {
-      const response = await fetch(`${this.baseURL}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: this.tokens.refreshToken }),
+      const response = await axios.post(`${this.baseURL}/auth/refresh`, {
+        refreshToken: this.tokens.refreshToken,
       });
 
-      if (response.ok) {
-        const body = await response.json();
-        // Handle nested data structure: { success: true, data: { tokens: ... } }
-        const tokens = body.data?.tokens || body.tokens;
+      const body = response.data;
+      // Handle nested data structure: { success: true, data: { tokens: ... } }
+      const tokens = body.data?.tokens || body.tokens;
 
-        if (tokens) {
-          this.saveTokens(tokens);
-          return true;
-        }
+      if (tokens) {
+        this.saveTokens(tokens);
+        return true;
       }
 
       this.clearTokens();

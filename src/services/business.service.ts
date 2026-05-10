@@ -8,7 +8,8 @@ import type {
   SearchResult,
   Service,
   Employee,
-  Appointment
+  Appointment,
+  AppointmentStatus,
 } from '@/types';
 
 interface GetAllBusinessesParams {
@@ -171,7 +172,7 @@ export const businessService = {
   async getAppointments(businessId: string, params?: {
     dateFrom?: string;
     dateTo?: string;
-    status?: string;
+    status?: AppointmentStatus;
   }): Promise<ApiResponse<Appointment[]>> {
     const queryParams = new URLSearchParams();
     if (params?.dateFrom) queryParams.append('dateFrom', params.dateFrom);

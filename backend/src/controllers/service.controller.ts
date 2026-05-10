@@ -1,7 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { z } from 'zod';
+import { createServiceSchema, updateServiceSchema } from '../utils/validators.js';
+import { getRequiredBusinessId } from '../middleware/tenant.js';
+import { container } from '../infrastructure/container.js';
 
-const prisma = new PrismaClient();
+const { prisma, useCases } = container;
+const { createServiceUseCase, updateServiceUseCase } = useCases;
 
 // ============================================
 // GET /api/businesses/:id/services
@@ -99,14 +103,11 @@ export const createService = async (
   try {
     const { id: businessId } = req.params as { id: string };
     const userId = (req as any).userId;
-    const {
-      name,
-      description,
-      category,
-      duration,
-      price,
-      image,
-    } = req.body;
+
+    const parsed = createServiceSchema.parse({
+      ...req.body,
+      businessId,
+    });
 
     // Verificar que el negocio pertenece al usuario
     const business = await prisma.business.findUnique({
@@ -127,23 +128,14 @@ export const createService = async (
       });
     }
 
-    // Obtener el último orden
-    const lastService = await prisma.service.findFirst({
-      where: { businessId },
-      orderBy: { order: 'desc' },
-    });
-
-    const service = await prisma.service.create({
-      data: {
-        businessId,
-        name,
-        description,
-        category,
-        duration: parseInt(duration),
-        price: parseFloat(price),
-        image,
-        order: lastService ? lastService.order + 1 : 1,
-      },
+    const service = await createServiceUseCase.execute({
+      businessId: parsed.businessId,
+      name: parsed.name,
+      description: parsed.description,
+      category: parsed.category,
+      duration: parsed.duration,
+      price: parsed.price,
+      image: parsed.image,
     });
 
     return res.status(201).json({
@@ -152,6 +144,13 @@ export const createService = async (
       message: 'Servicio creado exitosamente',
     });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Datos inválidos para crear el servicio',
+        details: error.errors,
+      });
+    }
     return next(error);
   }
 };
@@ -166,54 +165,25 @@ export const updateService = async (
   next: NextFunction
 ) => {
   try {
-    const { id } = req.params as { id: string };
-    const userId = (req as any).userId;
-    const {
-      name,
-      description,
-      category,
-      duration,
-      price,
-      image,
-      isActive,
-    } = req.body;
+    const { id: serviceId } = req.params as { id: string };
+    const businessId = getRequiredBusinessId(req);
 
-    // Verificar que el servicio existe y pertenece al usuario
-    const service = await prisma.service.findUnique({
-      where: { id },
-      include: {
-        business: {
-          select: {
-            ownerId: true,
-          },
-        },
-      },
+    const parsed = updateServiceSchema.parse({
+      ...req.body,
+      businessId,
     });
 
-    if (!service) {
-      return res.status(404).json({
-        success: false,
-        error: 'Servicio no encontrado',
-      });
-    }
-
-    if (service.business.ownerId !== userId) {
-      return res.status(403).json({
-        success: false,
-        error: 'No tienes permisos para actualizar este servicio',
-      });
-    }
-
-    const updated = await prisma.service.update({
-      where: { id },
+    const updated = await updateServiceUseCase.execute({
+      serviceId,
+      businessId: parsed.businessId,
       data: {
-        ...(name && { name }),
-        ...(description !== undefined && { description }),
-        ...(category && { category }),
-        ...(duration && { duration: parseInt(duration) }),
-        ...(price && { price: parseFloat(price) }),
-        ...(image !== undefined && { image }),
-        ...(isActive !== undefined && { isActive }),
+        ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+        ...(parsed.description !== undefined ? { description: parsed.description } : {}),
+        ...(parsed.category !== undefined ? { category: parsed.category } : {}),
+        ...(parsed.duration !== undefined ? { duration: parsed.duration } : {}),
+        ...(parsed.price !== undefined ? { price: parsed.price } : {}),
+        ...(parsed.image !== undefined ? { image: parsed.image } : {}),
+        ...(parsed.isActive !== undefined ? { isActive: parsed.isActive } : {}),
       },
     });
 
@@ -223,6 +193,13 @@ export const updateService = async (
       message: 'Servicio actualizado exitosamente',
     });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Datos inválidos para actualizar el servicio',
+        details: error.errors,
+      });
+    }
     return next(error);
   }
 };

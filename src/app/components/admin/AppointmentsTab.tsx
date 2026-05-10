@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import {
@@ -37,27 +36,33 @@ import { cn } from '../ui/utils';
 
 type AppointmentStatus = 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'IN_PROGRESS' | 'CHECKED_IN';
 
-interface EnrichedAppointment extends Omit<Appointment, 'service'> {
-  clientName?: string;
-  barberName?: string;
-  serviceName?: string;
-  service?: {
-    name: string;
-    duration: number;
-    price: number;
-  };
-  totalPrice?: number;
-}
+// ✅ Función helper para obtener el nombre del cliente
+// Prioridad: guestName > client.firstName + lastName > 'Cliente Sin Nombre'
+const getClientName = (appointment: Appointment): string => {
+  if (appointment.guestName) return appointment.guestName;
+  if (appointment.client?.firstName && appointment.client?.lastName) {
+    return `${appointment.client.firstName} ${appointment.client.lastName}`;
+  }
+  return 'Cliente Sin Nombre';
+};
+
+// ✅ Función helper para obtener el nombre del barbero/empleado
+const getEmployeeName = (appointment: Appointment): string => {
+  if (appointment.employee?.user?.firstName && appointment.employee?.user?.lastName) {
+    return `${appointment.employee.user.firstName} ${appointment.employee.user.lastName}`;
+  }
+  return 'Sin asignar';
+};
 
 export function AppointmentsTab() {
   const { user } = useAuth();
   const isMountedRef = useRef(true);
-  const [appointments, setAppointments] = useState<EnrichedAppointment[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<AppointmentStatus | 'all'>('all');
-  const [selectedAppointment, setSelectedAppointment] = useState<EnrichedAppointment | null>(null);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [view, setView] = useState<'list' | 'calendar'>('list'); // View state
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date()); // Default to today
@@ -90,26 +95,9 @@ export function AppointmentsTab() {
       if (!isMountedRef.current) return;
 
       if (appointmentsRes.success && appointmentsRes.data) {
-        const enriched = appointmentsRes.data.map((apt: any) => ({
-          ...apt,
-          clientName: apt.client ? `${apt.client.firstName} ${apt.client.lastName}` : 'Cliente Sin Nombre',
-          barberName: apt.employee?.user
-            ? `${apt.employee.user.firstName} ${apt.employee.user.lastName}`
-            : 'Sin asignar',
-          serviceName: apt.service?.name || 'Servicio',
-          // Transform employee to match Appointment type
-          employee: apt.employee?.user ? {
-            name: `${apt.employee.user.firstName} ${apt.employee.user.lastName}`,
-            avatar: apt.employee.user.avatar
-          } : undefined,
-          service: apt.service ? {
-            ...apt.service,
-            duration: apt.service.duration || 0,
-            price: apt.service.price || 0
-          } : undefined
-        }));
-
-        if (isMountedRef.current) setAppointments(enriched);
+        // ✅ Backend devuelve Appointment con service/employee completos
+        // No necesitamos enriquecer, usamos directamente
+        if (isMountedRef.current) setAppointments(appointmentsRes.data);
       }
     } catch (error) {
       console.error('Error loading appointments:', error);
@@ -132,15 +120,19 @@ export function AppointmentsTab() {
   }, [loadAppointments]);
 
   const filteredAppointments = appointments.filter((apt) => {
-    // Fix: Parse date string as local date to avoid timezone shifts
+    // ✅ Usar helpers para obtener nombres basados en nueva estructura
+    const clientName = getClientName(apt);
+    
+    // Parse date string as local date to avoid timezone shifts
     const dateVal = apt.date as unknown as (string | Date);
     const dateString = typeof dateVal === 'string'
       ? dateVal.split('T')[0]
       : format(dateVal, 'yyyy-MM-dd');
     const aptDate = parse(dateString, 'yyyy-MM-dd', new Date());
 
-    const matchesSearch = apt.clientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      apt.client?.phone?.includes(searchTerm);
+    const matchesSearch = clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      apt.client?.phone?.includes(searchTerm) ||
+      apt.guestPhone?.includes(searchTerm);
     const matchesStatus = filterStatus === 'all' || apt.status === filterStatus;
 
     // Filter by selected date if a date is selected
@@ -192,19 +184,45 @@ export function AppointmentsTab() {
     }
   };
 
+  // ✅ Badges mejorados con colores Tailwind específicos
   const getStatusBadge = (status: AppointmentStatus) => {
-    const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
-      PENDING: { variant: 'secondary', label: 'Pendiente' },
-      CONFIRMED: { variant: 'default', label: 'Confirmada' },
-      COMPLETED: { variant: 'outline', label: 'Completada' },
-      CANCELLED: { variant: 'destructive', label: 'Cancelada' },
-      NO_SHOW: { variant: 'destructive', label: 'No se presentó' },
-      IN_PROGRESS: { variant: 'default', label: 'En Progreso' },
-      CHECKED_IN: { variant: 'default', label: 'En Espera' }
+    const statusConfig: Record<string, { className: string; label: string }> = {
+      PENDING: { 
+        className: 'bg-yellow-100 text-yellow-800 border border-yellow-200', 
+        label: 'Pendiente' 
+      },
+      CONFIRMED: { 
+        className: 'bg-blue-100 text-blue-800 border border-blue-200', 
+        label: 'Confirmada' 
+      },
+      COMPLETED: { 
+        className: 'bg-green-100 text-green-800 border border-green-200', 
+        label: 'Completada' 
+      },
+      CANCELLED: { 
+        className: 'bg-red-100 text-red-800 border border-red-200', 
+        label: 'Cancelada' 
+      },
+      NO_SHOW: { 
+        className: 'bg-orange-100 text-orange-800 border border-orange-200', 
+        label: 'No se presentó' 
+      },
+      IN_PROGRESS: { 
+        className: 'bg-purple-100 text-purple-800 border border-purple-200', 
+        label: 'En Progreso' 
+      },
+      CHECKED_IN: { 
+        className: 'bg-indigo-100 text-indigo-800 border border-indigo-200', 
+        label: 'En Espera' 
+      }
     };
 
-    const config = variants[status] || variants.PENDING;
-    return <Badge variant={config.variant}>{config.label}</Badge>;
+    const config = statusConfig[status] || statusConfig.PENDING;
+    return (
+      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${config.className}`}>
+        {config.label}
+      </span>
+    );
   };
 
   // const today = startOfDay(new Date());
@@ -409,20 +427,30 @@ export function AppointmentsTab() {
                   </TableRow>
                 ) : (
                   filteredAppointments.map((appointment) => {
-                    // Fix: Parse date string as local date to avoid timezone shifts
+                    // ✅ Usar helpers para obtener nombres
+                    const clientName = getClientName(appointment);
+                    const employeeName = getEmployeeName(appointment);
+                    const serviceName = appointment.service?.name || 'Servicio';
+                    const servicePrice = appointment.service?.price || appointment.price || 0;
+                    
+                    // Parse date string as local date to avoid timezone shifts
                     const dateVal = appointment.date as unknown as (string | Date);
                     const dateString = typeof dateVal === 'string'
                       ? dateVal.split('T')[0]
                       : format(dateVal, 'yyyy-MM-dd');
                     const aptDate = parse(dateString, 'yyyy-MM-dd', new Date());
+                    
+                    // Obtener contacto: guestEmail/guestPhone si es invitado, sino client
+                    const contactEmail = appointment.guestEmail || appointment.client?.email;
+                    const contactPhone = appointment.guestPhone || appointment.client?.phone;
 
                     return (
                       <TableRow key={appointment.id}>
                         <TableCell>
                           <div>
-                            <div className="font-medium">{appointment.clientName}</div>
+                            <div className="font-medium">{clientName}</div>
                             <div className="text-sm text-neutral-500 md:hidden">
-                              {appointment.client?.phone}
+                              {contactPhone || 'N/A'}
                             </div>
                           </div>
                         </TableCell>
@@ -430,12 +458,12 @@ export function AppointmentsTab() {
                           <div className="flex flex-col gap-1 text-sm">
                             <span className="flex items-center gap-1">
                               <Phone className="size-3" />
-                              {appointment.client?.phone || 'N/A'}
+                              {contactPhone || 'N/A'}
                             </span>
-                            {appointment.client?.email && (
+                            {contactEmail && (
                               <span className="flex items-center gap-1 text-neutral-500">
                                 <Mail className="size-3" />
-                                {appointment.client.email}
+                                {contactEmail}
                               </span>
                             )}
                           </div>
@@ -443,10 +471,10 @@ export function AppointmentsTab() {
                         <TableCell>
                           <span className="flex items-center gap-1 text-sm">
                             <User className="size-3" />
-                            {appointment.barberName}
+                            {employeeName}
                           </span>
                         </TableCell>
-                        <TableCell>{appointment.serviceName}</TableCell>
+                        <TableCell>{serviceName}</TableCell>
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="flex items-center gap-1 text-sm">
@@ -460,7 +488,7 @@ export function AppointmentsTab() {
                           </div>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
-                          ${appointment.totalPrice || appointment.price || 0}
+                          ${servicePrice.toLocaleString('es-MX')}
                         </TableCell>
                         <TableCell>
                           {getStatusBadge(appointment.status)}

@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { authenticate, optionalAuthenticate } from '../middleware/auth.js';
+import { injectBusinessId, requireBusinessId } from '../middleware/tenant.js';
 import { createAppointment, getMyAppointments, updateAppointmentStatus, cancelAppointment, listAppointments } from '../controllers/appointment.controller.js';
 
 const router = Router();
 
 // POST /api/appointments - Crear cita
-router.post('/', optionalAuthenticate, createAppointment);
+router.post('/', optionalAuthenticate, injectBusinessId({ required: true, sources: ['jwt', 'url', 'body'] }), requireBusinessId, createAppointment);
 // GET /api/appointments - Listar citas (con filtros)
 router.get('/', authenticate, listAppointments);
 

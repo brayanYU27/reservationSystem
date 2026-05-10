@@ -13,6 +13,7 @@ import {
   Percent
 } from 'lucide-react';
 import { useBusiness } from '../../../contexts/BusinessContext';
+import { BusinessDashboardStats } from './BusinessDashboardStats';
 import { analyticsService } from '../../../services';
 import { toast } from 'sonner';
 
@@ -125,6 +126,11 @@ export function AnalyticsTab() {
 
   return (
     <div className="space-y-6">
+      {/* ── KPIs del negocio (Clean Architecture endpoint) ─────── */}
+      <BusinessDashboardStats />
+
+      <hr className="border-neutral-200" />
+
       {/* Period Selector */}
       <div className="flex items-center justify-between">
         <div>

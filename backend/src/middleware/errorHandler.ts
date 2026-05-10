@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { AppError } from '../core/domain/errors/AppError.js';
 
 export interface ApiError {
   statusCode: number;
@@ -7,21 +8,7 @@ export interface ApiError {
   details?: any;
 }
 
-export class AppError extends Error implements ApiError {
-  statusCode: number;
-  code?: string;
-  details?: any;
-
-  constructor(message: string, statusCode: number = 500, code?: string, details?: any) {
-    super(message);
-    this.statusCode = statusCode;
-    this.code = code;
-    this.details = details;
-    Error.captureStackTrace(this, this.constructor);
-  }
-}
-
-export const errorHandler = (
+export const globalErrorMiddleware = (
   err: Error | AppError,
   _req: Request,
   res: Response,
@@ -33,7 +20,7 @@ export const errorHandler = (
     return res.status(err.statusCode).json({
       success: false,
       error: {
-        code: err.code || `HTTP_${err.statusCode}`,
+        code: err.code,
         message: err.message,
         details: err.details,
       },
@@ -52,6 +39,9 @@ export const errorHandler = (
     },
   });
 };
+
+// Alias para compatibilidad con imports existentes
+export const errorHandler = globalErrorMiddleware;
 
 // Errores comunes
 export const notFound = (message: string = 'Recurso no encontrado') => {

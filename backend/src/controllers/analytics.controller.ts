@@ -454,3 +454,57 @@ export const getTopEmployees = async (
     next(error);
   }
 };
+
+// ============================================================
+// Clean Architecture: GetBusinessStatsUseCase
+// ============================================================
+import { container } from '../infrastructure/container.js';
+
+/**
+ * GET /api/analytics/business/:businessId/stats
+ * 
+ * Obtiene KPIs agregados de un negocio (Camino B / Clean Architecture)
+ * 
+ * Query params:
+ *   - dateFrom: string (YYYY-MM-DD)
+ *   - dateTo:   string (YYYY-MM-DD)
+ */
+export const getBusinessStats = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const businessId = req.params.businessId as string;
+    const { dateFrom, dateTo } = req.query;
+
+    if (!dateFrom || !dateTo) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Los parámetros dateFrom y dateTo son requeridos',
+          details: { required: ['dateFrom', 'dateTo'] }
+        }
+      });
+      return;
+    }
+
+    const fromDate = new Date(String(dateFrom));
+    const toDate = new Date(String(dateTo));
+    toDate.setHours(23, 59, 59, 999); // Fin del día
+
+    const stats = await container.useCases.getBusinessStatsUseCase.execute({
+      businessId,
+      dateFrom: fromDate,
+      dateTo: toDate
+    });
+
+    res.json({
+      success: true,
+      data: stats.toJSON()
+    });
+  } catch (error) {
+    next(error);
+  }
+};

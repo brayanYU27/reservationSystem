@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from './config/env.js';
-import { errorHandler } from './middleware/errorHandler.js';
+import { globalErrorMiddleware } from './middleware/errorHandler.js';
 
 // Para módulos ES
 const __filename = fileURLToPath(import.meta.url);
@@ -23,6 +23,7 @@ import subscriptionRoutes from './routes/subscription.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 import galleryRoutes from './routes/gallery.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import analyticsRoutes from './routes/analytics.routes.js';
 
 const app = express();
 
@@ -97,11 +98,12 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/gallery', galleryRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // ============================================
 // ERROR HANDLING
 // ============================================
-app.use(errorHandler);
+app.use(globalErrorMiddleware);
 
 // ============================================
 // INICIAR SERVIDOR
