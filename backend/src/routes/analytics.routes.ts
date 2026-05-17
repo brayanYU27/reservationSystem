@@ -4,7 +4,7 @@
 
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
-import { getBusinessStats } from '../controllers/analytics.controller.js';
+import { getBusinessStats, getAppointmentsSummary } from '../controllers/analytics.controller.js';
 
 const router = Router();
 
@@ -19,5 +19,18 @@ const router = Router();
  * @query dateTo    - Fecha fin   YYYY-MM-DD
  */
 router.get('/business/:businessId/stats', authenticate, getBusinessStats);
+
+/**
+ * GET /api/analytics/appointments/summary
+ * 
+ * Obtiene KPIs de citas filtradas por fecha, empleado y estado (reutilizable)
+ * 
+ * @requires auth - Token JWT válido
+ * @query businessId - ID del negocio
+ * @query dateFrom   - Fecha inicio YYYY-MM-DD
+ * @query dateTo     - Fecha fin YYYY-MM-DD
+ * @query employeeId - ID del empleado (opcional)
+ */
+router.get('/appointments/summary', authenticate, getAppointmentsSummary);
 
 export default router;

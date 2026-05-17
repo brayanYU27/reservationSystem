@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBusiness } from '@/contexts/BusinessContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ErrorBoundary } from './ErrorBoundary';
 import { WelcomeTour } from '@/components/onboarding/WelcomeTour';
+import { AppointmentFiltersProvider } from '@/hooks/useAppointmentFilters';
 import { OwnerDashboard } from './admin/OwnerDashboard';
 import { EmployeeDashboard } from './admin/EmployeeDashboard';
+import { BusinessCalendarView } from './admin/BusinessCalendarView';
 import { AppointmentsTab } from './admin/AppointmentsTab';
 import { ServicesTab } from './admin/ServicesTab';
 import { ScheduleTab } from './admin/ScheduleTab';
@@ -27,6 +30,7 @@ import {
 
 export function AdminView() {
   const { user } = useAuth();
+  const { business } = useBusiness();
   const isOwner = user?.role === 'BUSINESS_OWNER';
   const isEmployee = user?.role === 'EMPLOYEE';
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -43,8 +47,9 @@ export function AdminView() {
   // Vista para DUEÑOS - Dashboard completo
   return (
     <div className="container mx-auto px-4 py-8">
+      <AppointmentFiltersProvider initialDate={new Date()} initialEmployeeId="all">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 mb-8">
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-9 mb-8">
           <TabsTrigger value="dashboard" className="flex items-center gap-2" data-tour="dashboard">
             <LayoutDashboard className="size-4" />
             <span className="hidden sm:inline">Dashboard</span>
@@ -52,6 +57,10 @@ export function AdminView() {
           <TabsTrigger value="reception" className="flex items-center gap-2" data-tour="reception">
             <UserCheck className="size-4" />
             <span className="hidden sm:inline">Recepción</span>
+          </TabsTrigger>
+          <TabsTrigger value="calendar" className="flex items-center gap-2" data-tour="calendar">
+            <Calendar className="size-4" />
+            <span className="hidden sm:inline">Agenda</span>
           </TabsTrigger>
           <TabsTrigger value="appointments" className="flex items-center gap-2" data-tour="appointments">
             <Calendar className="size-4" />
@@ -92,6 +101,16 @@ export function AdminView() {
         <TabsContent value="reception">
           <ErrorBoundary>
             <ReceptionTab />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="calendar">
+          <ErrorBoundary>
+            {business?.id && (
+              <BusinessCalendarView
+                businessId={business.id}
+              />
+            )}
           </ErrorBoundary>
         </TabsContent>
 
@@ -137,6 +156,7 @@ export function AdminView() {
           </ErrorBoundary>
         </TabsContent>
       </Tabs>
+      </AppointmentFiltersProvider>
 
       {/* Welcome Tour */}
       <WelcomeTour userId={user?.id} userRole={user?.role as any} />

@@ -3,6 +3,26 @@ import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+function toMinutes(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function toHHMM(minutes: number): string {
+  const h = Math.floor(minutes / 60).toString().padStart(2, '0');
+  const m = (minutes % 60).toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function getCurrentWeekMonday(date: Date): Date {
+  const base = new Date(date);
+  base.setHours(0, 0, 0, 0);
+  const day = base.getDay(); // 0 domingo ... 6 sábado
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  base.setDate(base.getDate() + diffToMonday);
+  return base;
+}
+
 async function main() {
   console.log('🌱 Iniciando seed de la base de datos...');
 
@@ -1066,6 +1086,262 @@ async function main() {
   ]);
 
   console.log('✅ 18 citas creadas (10 completadas, 5 futuras, 2 canceladas, 1 no show)');
+
+  // ============================================
+  // DATASET AGENDA VISUAL (LOFTWARE)
+  // ============================================
+  console.log('🗓️ Creando dataset Agenda Visual para Barbería Loftware...');
+
+  const loftwareOwner = await prisma.user.create({
+    data: {
+      email: 'owner.loftware@barberia.com',
+      password: defaultPassword,
+      firstName: 'Lorenzo',
+      lastName: 'Mendoza',
+      phone: '5557771111',
+      role: 'BUSINESS_OWNER',
+      emailVerified: true,
+    },
+  });
+
+  const loftwareBusiness = await prisma.business.create({
+    data: {
+      ownerId: loftwareOwner.id,
+      name: 'Barbería Loftware',
+      slug: 'barberia-loftware',
+      category: 'BARBERSHOP',
+      description: 'Barbería de pruebas para agenda visual multi-tenant.',
+      address: 'Calle Circuito Digital 101',
+      city: 'Ciudad de México',
+      state: 'CDMX',
+      postalCode: '01010',
+      phone: '5557772222',
+      email: 'contacto@barberialoftware.com',
+      whatsapp: '5557772222',
+      workingHours: [
+        { day: 'monday', open: '09:00', close: '20:00', isOpen: true },
+        { day: 'tuesday', open: '09:00', close: '20:00', isOpen: true },
+        { day: 'wednesday', open: '09:00', close: '20:00', isOpen: true },
+        { day: 'thursday', open: '09:00', close: '20:00', isOpen: true },
+        { day: 'friday', open: '09:00', close: '20:00', isOpen: true },
+        { day: 'saturday', open: '09:00', close: '20:00', isOpen: true },
+        { day: 'sunday', open: '09:00', close: '20:00', isOpen: true },
+      ],
+      settings: {
+        allowOnlineBooking: true,
+        requiresDeposit: false,
+        cancellationPolicy: '12 horas de anticipación',
+        currency: 'MXN',
+      },
+      rating: 4.7,
+      totalReviews: 0,
+      isVerified: true,
+    },
+  });
+
+  const loftwareServices = await Promise.all([
+    prisma.service.create({
+      data: {
+        businessId: loftwareBusiness.id,
+        name: 'Corte Express',
+        description: 'Corte rápido con máquina y acabado.',
+        category: 'Corte',
+        duration: 30,
+        price: 180,
+        order: 1,
+      },
+    }),
+    prisma.service.create({
+      data: {
+        businessId: loftwareBusiness.id,
+        name: 'Corte Premium',
+        description: 'Corte detallado con asesoría de estilo.',
+        category: 'Corte',
+        duration: 60,
+        price: 320,
+        order: 2,
+      },
+    }),
+    prisma.service.create({
+      data: {
+        businessId: loftwareBusiness.id,
+        name: 'Barba Tradicional',
+        description: 'Alineado y perfilado de barba.',
+        category: 'Barba',
+        duration: 30,
+        price: 160,
+        order: 3,
+      },
+    }),
+    prisma.service.create({
+      data: {
+        businessId: loftwareBusiness.id,
+        name: 'Paquete Loftware',
+        description: 'Corte + barba + acabado premium.',
+        category: 'Paquete',
+        duration: 60,
+        price: 420,
+        order: 4,
+      },
+    }),
+  ]);
+
+  const loftwareEmployeeUsers = await Promise.all([
+    prisma.user.create({
+      data: {
+        email: 'mateo.loftware@barberia.com',
+        password: defaultPassword,
+        firstName: 'Mateo',
+        lastName: 'Reyes',
+        phone: '5557773001',
+        role: 'EMPLOYEE',
+        emailVerified: true,
+      },
+    }),
+    prisma.user.create({
+      data: {
+        email: 'ivan.loftware@barberia.com',
+        password: defaultPassword,
+        firstName: 'Iván',
+        lastName: 'Salas',
+        phone: '5557773002',
+        role: 'EMPLOYEE',
+        emailVerified: true,
+      },
+    }),
+    prisma.user.create({
+      data: {
+        email: 'diego.loftware@barberia.com',
+        password: defaultPassword,
+        firstName: 'Diego',
+        lastName: 'Vega',
+        phone: '5557773003',
+        role: 'EMPLOYEE',
+        emailVerified: true,
+      },
+    }),
+  ]);
+
+  const loftwareEmployees = await Promise.all([
+    prisma.employee.create({
+      data: {
+        userId: loftwareEmployeeUsers[0].id,
+        businessId: loftwareBusiness.id,
+        position: 'Barbero Senior',
+        bio: 'Especialista en fades y estilos clásicos.',
+        specialties: JSON.stringify(['Fade', 'Corte clásico']),
+      },
+    }),
+    prisma.employee.create({
+      data: {
+        userId: loftwareEmployeeUsers[1].id,
+        businessId: loftwareBusiness.id,
+        position: 'Barbero Stylist',
+        bio: 'Especialista en diseño y perfilado.',
+        specialties: JSON.stringify(['Diseño', 'Perfilado']),
+      },
+    }),
+    prisma.employee.create({
+      data: {
+        userId: loftwareEmployeeUsers[2].id,
+        businessId: loftwareBusiness.id,
+        position: 'Barbero Técnico',
+        bio: 'Atención express y acabados limpios.',
+        specialties: JSON.stringify(['Express', 'Acabados']),
+      },
+    }),
+  ]);
+
+  await Promise.all(
+    loftwareEmployees.map((employee) =>
+      prisma.employee.update({
+        where: { id: employee.id },
+        data: {
+          services: {
+            connect: loftwareServices.map((service) => ({ id: service.id })),
+          },
+        },
+      })
+    )
+  );
+
+  const weekStart = getCurrentWeekMonday(new Date());
+
+  const slotTemplates: Array<{ dayOffset: number; startTime: string; duration: 30 | 60; serviceIndex: number }> = [
+    { dayOffset: 0, startTime: '09:00', duration: 30, serviceIndex: 0 },
+    { dayOffset: 0, startTime: '10:00', duration: 60, serviceIndex: 1 },
+    { dayOffset: 0, startTime: '12:00', duration: 30, serviceIndex: 2 },
+    { dayOffset: 0, startTime: '14:00', duration: 60, serviceIndex: 3 },
+    { dayOffset: 1, startTime: '09:30', duration: 30, serviceIndex: 0 },
+    { dayOffset: 1, startTime: '11:00', duration: 60, serviceIndex: 1 },
+    { dayOffset: 1, startTime: '13:30', duration: 30, serviceIndex: 2 },
+    { dayOffset: 1, startTime: '15:00', duration: 60, serviceIndex: 3 },
+    { dayOffset: 2, startTime: '09:00', duration: 30, serviceIndex: 0 },
+    { dayOffset: 2, startTime: '10:30', duration: 60, serviceIndex: 1 },
+    { dayOffset: 2, startTime: '12:30', duration: 30, serviceIndex: 2 },
+    { dayOffset: 2, startTime: '16:00', duration: 60, serviceIndex: 3 },
+    { dayOffset: 3, startTime: '09:00', duration: 30, serviceIndex: 0 },
+    { dayOffset: 3, startTime: '11:30', duration: 60, serviceIndex: 1 },
+    { dayOffset: 3, startTime: '14:30', duration: 30, serviceIndex: 2 },
+    { dayOffset: 3, startTime: '17:00', duration: 60, serviceIndex: 3 },
+    { dayOffset: 4, startTime: '09:30', duration: 30, serviceIndex: 0 },
+    { dayOffset: 4, startTime: '10:30', duration: 60, serviceIndex: 1 },
+    { dayOffset: 4, startTime: '13:00', duration: 30, serviceIndex: 2 },
+    { dayOffset: 4, startTime: '15:30', duration: 60, serviceIndex: 3 },
+    { dayOffset: 5, startTime: '10:00', duration: 30, serviceIndex: 0 },
+    { dayOffset: 5, startTime: '11:00', duration: 60, serviceIndex: 1 },
+    { dayOffset: 5, startTime: '14:00', duration: 30, serviceIndex: 2 },
+    { dayOffset: 6, startTime: '09:30', duration: 60, serviceIndex: 3 },
+    { dayOffset: 6, startTime: '18:30', duration: 30, serviceIndex: 0 },
+  ];
+
+  const statusPlan = [
+    ...Array(15).fill('COMPLETED'),
+    ...Array(5).fill('CONFIRMED'),
+    ...Array(3).fill('PENDING'),
+    ...Array(2).fill('CANCELLED'),
+  ] as const;
+
+  await Promise.all(
+    slotTemplates.map((slot, index) => {
+      const status = statusPlan[index];
+      const employee = loftwareEmployees[index % loftwareEmployees.length];
+      const service = loftwareServices[slot.serviceIndex];
+      const startMinutes = toMinutes(slot.startTime);
+      const endTime = toHHMM(startMinutes + slot.duration);
+
+      const appointmentDate = new Date(weekStart);
+      appointmentDate.setDate(weekStart.getDate() + slot.dayOffset);
+      appointmentDate.setHours(12, 0, 0, 0);
+
+      const useRegisteredClient = index % 3 !== 0;
+      const registeredClient = clients[index % clients.length];
+
+      return prisma.appointment.create({
+        data: {
+          businessId: loftwareBusiness.id,
+          clientId: useRegisteredClient ? registeredClient.id : null,
+          guestName: useRegisteredClient ? null : `Invitado ${index + 1}`,
+          guestEmail: useRegisteredClient ? null : `invitado${index + 1}@demo.com`,
+          guestPhone: useRegisteredClient ? null : `55588${String(index).padStart(5, '0')}`,
+          employeeId: employee.id,
+          serviceId: service.id,
+          date: appointmentDate,
+          startTime: slot.startTime,
+          endTime,
+          duration: slot.duration,
+          status,
+          price: service.price,
+          isPaid: status === 'COMPLETED',
+          confirmedAt: status === 'COMPLETED' || status === 'CONFIRMED' ? new Date(appointmentDate) : null,
+          completedAt: status === 'COMPLETED' ? new Date(appointmentDate) : null,
+          cancelledAt: status === 'CANCELLED' ? new Date(appointmentDate) : null,
+        },
+      });
+    })
+  );
+
+  console.log('✅ Dataset Loftware creado: 1 negocio, 4 servicios, 3 empleados y 25 citas de la semana actual');
 
   // ============================================
   // CREAR IMÁGENES DE GALERÍA

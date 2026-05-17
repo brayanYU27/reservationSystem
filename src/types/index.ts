@@ -501,3 +501,13 @@ export interface AuthUser {
   user: User;
   tokens: AuthTokens;
 }
+
+// ============================================
+// KPIs CENTRALIZADOS (Analytics)
+// ============================================
+export interface AppointmentsSummary {
+  totalAppointments: number;
+  completedAppointments: number;
+  upcomingAppointments: number;
+  revenue: number;
+}

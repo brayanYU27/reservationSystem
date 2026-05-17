@@ -10,6 +10,7 @@ import type {
   Employee,
   Appointment,
   AppointmentStatus,
+  BusinessHours,
 } from '@/types';
 
 interface GetAllBusinessesParams {
@@ -173,16 +174,26 @@ export const businessService = {
     dateFrom?: string;
     dateTo?: string;
     status?: AppointmentStatus;
+    employeeId?: string;
   }): Promise<ApiResponse<Appointment[]>> {
     const queryParams = new URLSearchParams();
     if (params?.dateFrom) queryParams.append('dateFrom', params.dateFrom);
     if (params?.dateTo) queryParams.append('dateTo', params.dateTo);
     if (params?.status) queryParams.append('status', params.status);
+    if (params?.employeeId && params.employeeId !== 'all') queryParams.append('employeeId', params.employeeId);
 
     const queryString = queryParams.toString();
     return apiClient.get<Appointment[]>(
       `/businesses/${businessId}/appointments${queryString ? `?${queryString}` : ''}`
     );
+  },
+
+  async getBusinessHours(businessId: string): Promise<ApiResponse<BusinessHours[]>> {
+    return apiClient.get<BusinessHours[]>(`/businesses/${businessId}/hours`);
+  },
+
+  async updateBusinessHours(businessId: string, workingHours: BusinessHours[]): Promise<ApiResponse<BusinessHours[]>> {
+    return apiClient.put<BusinessHours[]>(`/businesses/${businessId}/hours`, { workingHours });
   },
 
   // Dar like a imagen de galería

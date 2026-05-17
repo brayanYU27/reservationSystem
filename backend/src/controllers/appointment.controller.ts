@@ -323,8 +323,25 @@ export const listAppointments = async (req: Request, res: Response, next: NextFu
 
         const where: any = {};
 
-        if (employeeId) {
-            where.employeeId = String(employeeId);
+        const employeeIdParam = Array.isArray(employeeId)
+            ? String(employeeId[0] || '').trim()
+            : String(employeeId || '').trim();
+
+        if (employeeIdParam) {
+            // Soporta tanto Employee.id como User.id
+            const employeeProfile = await prisma.employee.findFirst({
+                where: {
+                    OR: [
+                        { id: employeeIdParam },
+                        { userId: employeeIdParam },
+                    ],
+                },
+                select: { id: true },
+            });
+
+            // Si el ID está presente, SIEMPRE aplicar filtro employeeId
+            // Si no existe perfil, forzamos un id imposible para evitar resultados incorrectos.
+            where.employeeId = employeeProfile?.id ?? '__NO_EMPLOYEE_MATCH__';
         }
 
         if (date) {

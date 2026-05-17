@@ -12,6 +12,8 @@ import {
   getMyBusiness,
   getBusinessAvailability,
   getBusinessAppointments,
+  getBusinessHours,
+  updateBusinessHours,
 } from '../controllers/business.controller.js';
 import {
   getBusinessServices,
@@ -113,6 +115,12 @@ router.post('/:id/services/reorder', authenticate, reorderServices);
 
 // GET /api/businesses/:id/appointments - Obtener citas de un negocio
 router.get('/:id/appointments', authenticate, getBusinessAppointments);
+
+// GET /api/businesses/:id/hours - Obtener horarios del negocio
+router.get('/:id/hours', authenticate, getBusinessHours);
+
+// PUT /api/businesses/:id/hours - Guardar horarios del negocio
+router.put('/:id/hours', authenticate, updateBusinessHours);
 
 // Analytics routes
 import * as analyticsController from '../controllers/analytics.controller.js';

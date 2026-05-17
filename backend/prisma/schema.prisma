@@ -100,6 +100,7 @@ model Business {
   subscription  Subscription?
   services      Service[]
   employees     Employee[]
+  businessHours BusinessHours[]
   appointments  Appointment[]
   reviews       Review[]
   gallery       Gallery[]
@@ -107,6 +108,32 @@ model Business {
   @@index([slug])
   @@index([city, category])
   @@index([tenantId])
+}
+
+enum BusinessDay {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+model BusinessHours {
+  id         String      @id @default(cuid())
+  businessId String
+  day        BusinessDay
+  isOpen     Boolean     @default(true)
+  openTime   String
+  closeTime  String
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, day])
+  @@index([businessId])
 }
 
 enum Category {

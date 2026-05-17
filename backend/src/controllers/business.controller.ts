@@ -3,6 +3,75 @@ import { PrismaClient, Category } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+const DAY_SEQUENCE = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+
+type DayName = typeof DAY_SEQUENCE[number];
+
+type BusinessHoursPayload = {
+  day: DayName;
+  isOpen: boolean;
+  open: string;
+  close: string;
+};
+
+function normalizeBusinessHoursPayload(input: unknown): BusinessHoursPayload[] {
+  if (!Array.isArray(input)) return [];
+
+  const map = new Map<DayName, BusinessHoursPayload>();
+
+  input.forEach((item) => {
+    if (!item || typeof item !== 'object') return;
+
+    const rawDay = String((item as any).day || '').toLowerCase() as DayName;
+    if (!DAY_SEQUENCE.includes(rawDay)) return;
+
+    map.set(rawDay, {
+      day: rawDay,
+      isOpen: Boolean((item as any).isOpen),
+      open: String((item as any).open || '09:00'),
+      close: String((item as any).close || '21:00'),
+    });
+  });
+
+  return DAY_SEQUENCE.map((day) => map.get(day) ?? {
+    day,
+    isOpen: false,
+    open: '09:00',
+    close: '21:00',
+  });
+}
+
+function dayNameToPrisma(day: DayName) {
+  return day.toUpperCase() as 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
+}
+
+function dayPrismaToName(day: string): DayName {
+  return day.toLowerCase() as DayName;
+}
+
+function serializeBusinessHours(records: Array<{ day: string; isOpen: boolean; openTime: string; closeTime: string }> = [], legacy?: unknown): BusinessHoursPayload[] {
+  if (records.length > 0) {
+    return records
+      .map((item) => ({
+        day: dayPrismaToName(item.day),
+        isOpen: item.isOpen,
+        open: item.openTime,
+        close: item.closeTime,
+      }))
+      .sort((a, b) => DAY_SEQUENCE.indexOf(a.day) - DAY_SEQUENCE.indexOf(b.day));
+  }
+
+  return normalizeBusinessHoursPayload(legacy);
+}
+
+function mapBusinessWithHours<T extends { businessHours?: Array<{ day: string; isOpen: boolean; openTime: string; closeTime: string }>; workingHours?: unknown }>(business: T): Omit<T, 'businessHours'> & { workingHours: BusinessHoursPayload[] } {
+  const { businessHours, ...rest } = business;
+  return {
+    ...rest,
+    workingHours: serializeBusinessHours(businessHours, business.workingHours),
+  };
+}
+
 // ============================================
 // CONTROLADORES PÚBLICOS
 // ============================================
@@ -159,6 +228,7 @@ export const getBusinessById = async (
             }
           }
         },
+        businessHours: true,
         gallery: true,
         reviews: {
           orderBy: { createdAt: 'desc' },
@@ -193,7 +263,7 @@ export const getBusinessById = async (
 
     return res.json({
       success: true,
-      data: business
+      data: mapBusinessWithHours(business)
     });
   } catch (error) {
     return next(error);
@@ -238,6 +308,7 @@ export const getBusinessBySlug = async (
             }
           }
         },
+        businessHours: true,
         gallery: true,
         _count: {
           select: {
@@ -258,7 +329,7 @@ export const getBusinessBySlug = async (
 
     return res.json({
       success: true,
-      data: business
+      data: mapBusinessWithHours(business)
     });
   } catch (error) {
     return next(error);
@@ -296,6 +367,7 @@ export const createBusiness = async (
       latitude,
       longitude,
     } = req.body;
+    const normalizedWorkingHours = normalizeBusinessHoursPayload(workingHours);
 
     // Verificar que el usuario no tenga ya un negocio
     const existingBusiness = await prisma.business.findFirst({
@@ -344,7 +416,15 @@ export const createBusiness = async (
         latitude: latitude || null,
         longitude: longitude || null,
         socialMedia: socialMedia || {},
-        workingHours: workingHours || {},
+        workingHours: normalizedWorkingHours,
+        businessHours: {
+          create: normalizedWorkingHours.map((item) => ({
+            day: dayNameToPrisma(item.day),
+            isOpen: item.isOpen,
+            openTime: item.open,
+            closeTime: item.close,
+          })),
+        },
         settings: {
           bookingWindow: 30,
           cancellationPolicy: 24,
@@ -363,13 +443,14 @@ export const createBusiness = async (
             email: true,
             avatar: true,
           }
-        }
+        },
+        businessHours: true,
       }
     });
 
     return res.status(201).json({
       success: true,
-      data: business,
+      data: mapBusinessWithHours(business),
       message: 'Negocio creado exitosamente'
     });
   } catch (error) {
@@ -423,6 +504,10 @@ export const updateBusiness = async (
       logo,
       coverImage,
     } = req.body;
+    const hasWorkingHours = Object.prototype.hasOwnProperty.call(req.body, 'workingHours');
+    const normalizedWorkingHours = hasWorkingHours
+      ? normalizeBusinessHoursPayload(workingHours)
+      : [];
 
     const updated = await prisma.business.update({
       where: { id },
@@ -438,7 +523,18 @@ export const updateBusiness = async (
         ...(whatsapp !== undefined && { whatsapp }),
         ...(website !== undefined && { website }),
         ...(socialMedia && { socialMedia }),
-        ...(workingHours && { workingHours }),
+        ...(hasWorkingHours && {
+          workingHours: normalizedWorkingHours,
+          businessHours: {
+            deleteMany: {},
+            create: normalizedWorkingHours.map((item) => ({
+              day: dayNameToPrisma(item.day),
+              isOpen: item.isOpen,
+              openTime: item.open,
+              closeTime: item.close,
+            })),
+          },
+        }),
         ...(settings && { settings }),
         ...(logo !== undefined && { logo }),
         ...(coverImage !== undefined && { coverImage }),
@@ -452,13 +548,14 @@ export const updateBusiness = async (
             email: true,
             avatar: true,
           }
-        }
+        },
+        businessHours: true,
       }
     });
 
     return res.json({
       success: true,
-      data: updated,
+      data: mapBusinessWithHours(updated),
       message: 'Negocio actualizado exitosamente'
     });
   } catch (error) {
@@ -547,6 +644,7 @@ export const getMyBusiness = async (
             }
           }
         },
+        businessHours: true,
         subscription: true,
         _count: {
           select: {
@@ -590,6 +688,7 @@ export const getMyBusiness = async (
                   }
                 }
               },
+              businessHours: true,
               subscription: true,
               _count: {
                 select: {
@@ -617,7 +716,7 @@ export const getMyBusiness = async (
 
     return res.json({
       success: true,
-      data: business
+      data: mapBusinessWithHours(business)
     });
   } catch (error) {
     return next(error);
@@ -787,8 +886,9 @@ export const getBusinessAppointments = async (
   next: NextFunction
 ) => {
   try {
-    const { id } = req.params; // Business ID
-    const { dateFrom, dateTo, status } = req.query;
+    const { id } = req.params as { id: string }; // Business ID
+    const { dateFrom, dateTo, status, employeeId } = req.query;
+    const employeeIdParam = Array.isArray(employeeId) ? employeeId[0] : employeeId;
 
     const where: any = {
       businessId: id // Usar index directo de businessId
@@ -803,6 +903,18 @@ export const getBusinessAppointments = async (
 
     if (status && status !== 'all') {
       where.status = status as string;
+    }
+
+    if (employeeIdParam) {
+      const employee = await prisma.employee.findFirst({
+        where: {
+          businessId: id,
+          OR: [{ id: String(employeeIdParam) }, { userId: String(employeeIdParam) }],
+        },
+        select: { id: true },
+      });
+
+      where.employeeId = employee?.id ?? '__NO_EMPLOYEE_MATCH__';
     }
 
     const appointments = await prisma.appointment.findMany({
@@ -855,6 +967,87 @@ export const getBusinessAppointments = async (
     }));
 
     return res.json({ success: true, data: formattedAppointments });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// GET /api/businesses/:id/hours - Obtener horarios del negocio
+export const getBusinessHours = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params as { id: string };
+
+    const business = await prisma.business.findUnique({
+      where: { id },
+      select: {
+        workingHours: true,
+        businessHours: true,
+      },
+    });
+
+    if (!business) {
+      return res.status(404).json({ success: false, error: 'Negocio no encontrado' });
+    }
+
+    return res.json({
+      success: true,
+      data: serializeBusinessHours(business.businessHours, business.workingHours),
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// PUT /api/businesses/:id/hours - Guardar horarios del negocio
+export const updateBusinessHours = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params as { id: string };
+    const userId = (req as any).userId;
+    const normalizedWorkingHours = normalizeBusinessHoursPayload(req.body?.workingHours);
+
+    const business = await prisma.business.findUnique({ where: { id } });
+
+    if (!business) {
+      return res.status(404).json({ success: false, error: 'Negocio no encontrado' });
+    }
+
+    if (business.ownerId !== userId) {
+      return res.status(403).json({ success: false, error: 'No tienes permisos para actualizar este negocio' });
+    }
+
+    const updated = await prisma.business.update({
+      where: { id },
+      data: {
+        workingHours: normalizedWorkingHours,
+        businessHours: {
+          deleteMany: {},
+          create: normalizedWorkingHours.map((item) => ({
+            day: dayNameToPrisma(item.day),
+            isOpen: item.isOpen,
+            openTime: item.open,
+            closeTime: item.close,
+          })),
+        },
+      },
+      select: {
+        workingHours: true,
+        businessHours: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: serializeBusinessHours(updated.businessHours, updated.workingHours),
+      message: 'Horarios actualizados exitosamente',
+    });
   } catch (error) {
     return next(error);
   }

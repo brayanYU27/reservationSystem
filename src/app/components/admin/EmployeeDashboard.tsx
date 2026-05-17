@@ -42,18 +42,23 @@ export function EmployeeDashboard() {
   const loadAppointments = useCallback(async () => {
     try {
       setRefreshing(true);
-      if (!user?.employeeProfile?.id) {
+      const ownUid = user?.id;
+      const employeeProfileId = user?.employeeProfile?.id;
+      const employeeFilterId = ownUid || employeeProfileId;
+
+      if (!employeeFilterId) {
         // Fallback or setup for employee who doesn't have a profile linked yet
-        console.warn("Usuario no tiene perfil de empleado vinculado");
+        console.warn("Usuario no tiene UID o perfil de empleado vinculado");
         setLoading(false);
         setRefreshing(false);
         return;
       }
 
-      console.log("Cargando citas para empleado:", user.employeeProfile.id);
+      console.log("Cargando citas para empleado (UID/profile):", employeeFilterId);
 
       const response = await appointmentService.list({
-        employeeId: user.employeeProfile.id,
+        // Enviamos UID propio; backend soporta UID o Employee.id
+        employeeId: employeeFilterId,
         page: 1,
         limit: 100,
         // Optional: filter by date range if needed, for now getting all to show history/future

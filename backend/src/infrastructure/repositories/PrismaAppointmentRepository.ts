@@ -2,6 +2,7 @@ import { prisma } from '../../config/database.js';
 import {
   IAppointmentRepository,
   CreateAppointmentRepositoryInput,
+  FindAppointmentsFilter,
   DbClient,
 } from '../../core/domain/IAppointmentRepository.js';
 import { Appointment } from '../../core/domain/entities/Appointment.js';
@@ -48,5 +49,43 @@ export class PrismaAppointmentRepository implements IAppointmentRepository {
     });
 
     return AppointmentMapper.toDomain(created);
+  }
+
+  async findAll(filter: FindAppointmentsFilter, dbClient?: DbClient): Promise<Appointment[]> {
+    const db = dbClient ?? prisma;
+
+    const appointments = await db.appointment.findMany({
+      where: {
+        businessId: filter.businessId,
+        date: {
+          gte: filter.dateFrom,
+          lte: filter.dateTo,
+        },
+        ...(filter.employeeId ? { employeeId: filter.employeeId } : {}),
+      },
+      include: {
+        service: true,
+        employee: {
+          include: {
+            user: true,
+          },
+        },
+        business: true,
+        client: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: [
+        { date: 'asc' },
+        { startTime: 'asc' },
+      ],
+    });
+
+    return appointments.map((appointment) => AppointmentMapper.toDomain(appointment));
   }
 }

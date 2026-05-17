@@ -20,6 +20,14 @@ export interface CreateAppointmentRepositoryInput {
   guestPhone?: string;
 }
 
+export interface FindAppointmentsFilter {
+  businessId: string;
+  dateFrom: Date;
+  dateTo: Date;
+  employeeId?: string;
+}
+
 export interface IAppointmentRepository {
   create(data: CreateAppointmentRepositoryInput, dbClient?: DbClient): Promise<Appointment>;
+  findAll(filter: FindAppointmentsFilter, dbClient?: DbClient): Promise<Appointment[]>;
 }

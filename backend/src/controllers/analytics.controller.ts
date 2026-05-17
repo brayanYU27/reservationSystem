@@ -508,3 +508,98 @@ export const getBusinessStats = async (
     next(error);
   }
 };
+
+/**
+ * GET /api/analytics/appointments/summary
+ * 
+ * Obtiene KPIs de citas filtradas por fecha y empleado (reutilizable en componentes)
+ * 
+ * @requires auth - Token JWT válido
+ * @query businessId - ID del negocio
+ * @query dateFrom   - Fecha inicio YYYY-MM-DD
+ * @query dateTo     - Fecha fin YYYY-MM-DD
+ * @query employeeId - ID del empleado (opcional)
+ */
+export const getAppointmentsSummary = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { businessId, dateFrom, dateTo, employeeId } = req.query as {
+      businessId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      employeeId?: string;
+    };
+
+    if (!businessId || !dateFrom || !dateTo) {
+      res.status(400).json({
+        success: false,
+        error: 'businessId, dateFrom, dateTo son requeridos'
+      });
+      return;
+    }
+
+    const startDate = new Date(dateFrom);
+    const endDate = new Date(dateTo);
+    endDate.setHours(23, 59, 59, 999);
+
+    // Base where clause
+    const whereClause: any = {
+      businessId,
+      date: {
+        gte: startDate,
+        lte: endDate,
+      },
+    };
+
+    // Agregar filtro de empleado si se proporciona
+    if (employeeId) {
+      // Soportar tanto Employee.id como User.id
+      const employee = await prisma.employee.findFirst({
+        where: { OR: [{ id: employeeId }, { userId: employeeId }] },
+        select: { id: true }
+      });
+      
+      if (employee) {
+        whereClause.employeeId = employee.id;
+      } else {
+        whereClause.employeeId = '__NO_MATCH__';
+      }
+    }
+
+    // Obtener todas las citas para análisis detallado
+    const appointments = await prisma.appointment.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        status: true,
+        price: true,
+        date: true,
+      },
+    });
+
+    // Calcular KPIs
+    const totalAppointments = appointments.length;
+    const completedAppointments = appointments.filter(a => a.status === 'COMPLETED').length;
+    const upcomingAppointments = appointments.filter(a => {
+      return new Date(a.date) > new Date() && a.status !== 'CANCELLED';
+    }).length;
+    const revenue = appointments
+      .filter(a => a.status === 'COMPLETED')
+      .reduce((sum, a) => sum + (a.price || 0), 0);
+
+    res.json({
+      success: true,
+      data: {
+        totalAppointments,
+        completedAppointments,
+        upcomingAppointments,
+        revenue,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

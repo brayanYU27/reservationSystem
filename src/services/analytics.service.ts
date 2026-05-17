@@ -36,6 +36,16 @@ export interface BusinessStatsData {
   metrics: BusinessStatsMetrics;
 }
 
+// ============================================================
+// KPIs para filtros reutilizables (AppointmentsTab, etc.)
+// ============================================================
+export interface AppointmentsSummary {
+  totalAppointments: number;
+  completedAppointments: number;
+  upcomingAppointments: number;
+  revenue: number;
+}
+
 interface AnalyticsSummary {
   revenue: {
     total: number;
@@ -125,6 +135,24 @@ export const analyticsService = {
   ): Promise<ApiResponse<BusinessStatsData>> {
     return apiClient.get<BusinessStatsData>(
       `/analytics/business/${businessId}/stats?dateFrom=${dateFrom}&dateTo=${dateTo}`
+    );
+  },
+
+  // ✅ Obtener KPIs de citas filtrados (reutilizable en componentes)
+  async getAppointmentsSummary(
+    businessId: string,
+    dateFrom: string,
+    dateTo: string,
+    employeeId?: string
+  ): Promise<ApiResponse<AppointmentsSummary>> {
+    const params = new URLSearchParams({
+      businessId,
+      dateFrom,
+      dateTo,
+      ...(employeeId && { employeeId }),
+    });
+    return apiClient.get<AppointmentsSummary>(
+      `/analytics/appointments/summary?${params.toString()}`
     );
   },
 };

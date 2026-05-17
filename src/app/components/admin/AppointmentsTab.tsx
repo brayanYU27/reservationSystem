@@ -21,15 +21,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../ui/alert-dialog';
-import { Calendar as CalendarIcon, Search, Phone, Mail, CheckCheck, UserCheck, X, Clock, User, Loader2, List } from 'lucide-react';
-import { format, parseISO, startOfMonth, endOfMonth, isSameDay, parse } from 'date-fns';
+import { Calendar as CalendarIcon, Search, Phone, Mail, CheckCheck, UserCheck, Clock, User, Loader2, List } from 'lucide-react';
+import { format, isSameDay, parse } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
-import { useAuth } from '@/contexts/AuthContext';
+import { useBusiness } from '@/contexts/BusinessContext';
+import { useAppointmentFilters } from '@/hooks/useAppointmentFilters';
 import { businessService } from '@/services/business.service';
 import { appointmentService } from '@/services/appointment.service';
+import { analyticsService } from '@/services/analytics.service';
 import { AppointmentCalendar } from './AppointmentCalendar'; // Import Calendar
-import type { Appointment } from '@/types';
+import type { Appointment, AppointmentsSummary, Employee } from '@/types';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
 import { cn } from '../ui/utils';
@@ -54,50 +56,81 @@ const getEmployeeName = (appointment: Appointment): string => {
   return 'Sin asignar';
 };
 
+const parseAppointmentLocalDate = (value: Appointment['date']): Date => {
+  const dateVal = value as unknown as (string | Date);
+  const dateString = typeof dateVal === 'string'
+    ? dateVal.split('T')[0]
+    : format(dateVal, 'yyyy-MM-dd');
+
+  return parse(dateString, 'yyyy-MM-dd', new Date());
+};
+
 export function AppointmentsTab() {
-  const { user } = useAuth();
+  const { business } = useBusiness();
+  const {
+    filters: { selectedDate, selectedEmployeeId, searchTerm, filterStatus },
+    setSelectedDate,
+    setSelectedEmployeeId,
+    setSearchTerm,
+    setFilterStatus,
+  } = useAppointmentFilters();
   const isMountedRef = useRef(true);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [kpisLoading, setKpisLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<AppointmentStatus | 'all'>('all');
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
-  const [view, setView] = useState<'list' | 'calendar'>('list'); // View state
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date()); // Default to today
+  const [view, setView] = useState<'list' | 'calendar'>('list');
+  
+  // ✅ KPIs centralizados desde el servicio
+  const [kpis, setKpis] = useState<AppointmentsSummary>({
+    totalAppointments: 0,
+    completedAppointments: 0,
+    upcomingAppointments: 0,
+    revenue: 0,
+  });
 
-  const loadAppointments = useCallback(async () => {
-    if (!user) return;
+  const loadEmployees = useCallback(async () => {
+    if (!business) return;
+
+    try {
+      const employeesRes = await businessService.getEmployees(business.id);
+
+      if (!isMountedRef.current) return;
+
+      if (employeesRes.success && employeesRes.data) {
+        setEmployees(employeesRes.data.filter((employee) => employee.isActive));
+      } else {
+        setEmployees([]);
+      }
+    } catch (error) {
+      console.error('Error loading employees:', error);
+      if (isMountedRef.current) setEmployees([]);
+    }
+  }, [business]);
+
+  const loadAppointments = useCallback(async (targetDate?: Date, employeeId?: string) => {
+    if (!business) return;
 
     if (isMountedRef.current) setLoading(true);
     try {
-      const businessRes = await businessService.getMy();
-      if (!isMountedRef.current) return;
+      const dateToLoad = targetDate ?? new Date();
+      const isoDate = format(dateToLoad, 'yyyy-MM-dd');
 
-      if (!businessRes.success || !businessRes.data) {
-        toast.error('No se pudo cargar el negocio');
-        if (isMountedRef.current) setLoading(false);
-        return;
-      }
-
-      const businessId = businessRes.data.id;
-
-      const now = new Date();
-      const monthStart = startOfMonth(now);
-      const monthEnd = endOfMonth(now);
-
-      const appointmentsRes = await businessService.getAppointments(businessId, {
-        dateFrom: format(monthStart, 'yyyy-MM-dd'),
-        dateTo: format(monthEnd, 'yyyy-MM-dd'),
+      const appointmentsRes = await businessService.getAppointments(business.id, {
+        dateFrom: isoDate,
+        dateTo: isoDate,
+        employeeId: employeeId && employeeId !== 'all' ? employeeId : undefined,
       });
 
       if (!isMountedRef.current) return;
 
       if (appointmentsRes.success && appointmentsRes.data) {
-        // ✅ Backend devuelve Appointment con service/employee completos
-        // No necesitamos enriquecer, usamos directamente
         if (isMountedRef.current) setAppointments(appointmentsRes.data);
+      } else if (isMountedRef.current) {
+        setAppointments([]);
       }
     } catch (error) {
       console.error('Error loading appointments:', error);
@@ -105,41 +138,82 @@ export function AppointmentsTab() {
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
-  }, [user]);
+  }, [business]);
+
+  // ✅ Cargar KPIs del servicio centralizado
+  const loadKpis = useCallback(async (targetDate?: Date, employeeId?: string) => {
+    if (!business) return;
+
+    if (isMountedRef.current) setKpisLoading(true);
+    try {
+      const dateToLoad = targetDate ?? new Date();
+      const isoDate = format(dateToLoad, 'yyyy-MM-dd');
+
+      const kpisRes = await analyticsService.getAppointmentsSummary(
+        business.id,
+        isoDate,
+        isoDate,
+        employeeId && employeeId !== 'all' ? employeeId : undefined
+      );
+
+      if (!isMountedRef.current) return;
+
+      if (kpisRes.success && kpisRes.data) {
+        if (isMountedRef.current) setKpis(kpisRes.data);
+      }
+    } catch (error) {
+      console.error('Error loading KPIs:', error);
+      // No mostrar error al usuario, solo registrar
+    } finally {
+      if (isMountedRef.current) setKpisLoading(false);
+    }
+  }, [business]);
 
   useEffect(() => {
     isMountedRef.current = true;
-    loadAppointments();
-    // Ensure selectedDate defaults to today on mount if not set (though useState should handle it)
-    if (!selectedDate) {
-      setSelectedDate(new Date());
-    }
+
+    loadEmployees();
+
     return () => {
       isMountedRef.current = false;
     };
-  }, [loadAppointments]);
+  }, [loadEmployees]);
+
+  useEffect(() => {
+    const activeDate = selectedDate ?? new Date();
+    if (!selectedDate) {
+      setSelectedDate(activeDate);
+      return;
+    }
+    loadAppointments(activeDate, selectedEmployeeId);
+    loadKpis(activeDate, selectedEmployeeId);
+  }, [selectedDate, selectedEmployeeId, loadAppointments, loadKpis, setSelectedDate]);
 
   const filteredAppointments = appointments.filter((apt) => {
     // ✅ Usar helpers para obtener nombres basados en nueva estructura
     const clientName = getClientName(apt);
     
     // Parse date string as local date to avoid timezone shifts
-    const dateVal = apt.date as unknown as (string | Date);
-    const dateString = typeof dateVal === 'string'
-      ? dateVal.split('T')[0]
-      : format(dateVal, 'yyyy-MM-dd');
-    const aptDate = parse(dateString, 'yyyy-MM-dd', new Date());
+    const aptDate = parseAppointmentLocalDate(apt.date);
 
     const matchesSearch = clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       apt.client?.phone?.includes(searchTerm) ||
       apt.guestPhone?.includes(searchTerm);
     const matchesStatus = filterStatus === 'all' || apt.status === filterStatus;
+    const matchesEmployee = selectedEmployeeId === 'all' || apt.employeeId === selectedEmployeeId;
 
     // Filter by selected date if a date is selected
     const matchesDate = selectedDate ? isSameDay(aptDate, selectedDate) : true;
 
-    return matchesSearch && matchesStatus && matchesDate;
+    return matchesSearch && matchesStatus && matchesEmployee && matchesDate;
   });
+
+  // ✅ KPIs sincronizados con la API centralizada
+  const displayKpis = {
+    total: kpis.totalAppointments,
+    upcoming: kpis.upcomingAppointments,
+    revenue: kpis.revenue,
+  };
 
   const updateAppointmentStatus = async (id: string, status: AppointmentStatus) => {
     if (isMountedRef.current) setUpdatingId(id);
@@ -225,40 +299,6 @@ export function AppointmentsTab() {
     );
   };
 
-  // const today = startOfDay(new Date());
-  const todayAppointments = appointments.filter(
-    apt => {
-      // Fix: Parse date string as local date to avoid timezone shifts
-      const dateVal = apt.date as unknown as (string | Date);
-      const dateString = typeof dateVal === 'string'
-        ? dateVal.split('T')[0]
-        : format(dateVal, 'yyyy-MM-dd');
-      const aptDate = parse(dateString, 'yyyy-MM-dd', new Date());
-
-      return isSameDay(aptDate, new Date()) &&
-        apt.status !== 'CANCELLED';
-    }
-  );
-
-  const upcomingAppointments = appointments.filter(
-    apt => {
-      // Fix: Parse date string as local date to avoid timezone shifts
-      const dateVal = apt.date as unknown as (string | Date);
-      const dateString = typeof dateVal === 'string'
-        ? dateVal.split('T')[0]
-        : format(dateVal, 'yyyy-MM-dd');
-      const aptDate = parse(dateString, 'yyyy-MM-dd', new Date());
-
-      // Compare with end of today to show strictly future dates, or just > now
-      // If we want "upcoming" to mean future days:
-      return aptDate > new Date() && apt.status !== 'CANCELLED';
-    }
-  );
-
-  const todayRevenue = todayAppointments
-    .filter(apt => apt.status === 'COMPLETED')
-    .reduce((sum, apt) => sum + (apt.totalPrice || apt.price || 0), 0);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -275,7 +315,7 @@ export function AppointmentsTab() {
           <Button
             variant={view === 'list' ? 'secondary' : 'ghost'}
             size="sm"
-            onClick={() => { setView('list'); setSelectedDate(undefined); }}
+            onClick={() => setView('list')}
             className={view === 'list' ? 'shadow-sm' : ''}
           >
             <List className="size-4 mr-2" />
@@ -298,20 +338,24 @@ export function AppointmentsTab() {
         <Card>
           <CardHeader className="pb-3">
             <CardDescription>Citas de Hoy</CardDescription>
-            <CardTitle className="text-3xl">{todayAppointments.length}</CardTitle>
+            <CardTitle className="text-3xl">
+              {kpisLoading ? '...' : displayKpis.total}
+            </CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-3">
             <CardDescription>Próximas Citas</CardDescription>
-            <CardTitle className="text-3xl">{upcomingAppointments.length}</CardTitle>
+            <CardTitle className="text-3xl">
+              {kpisLoading ? '...' : displayKpis.upcoming}
+            </CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-3">
             <CardDescription>Ingresos Hoy</CardDescription>
             <CardTitle className="text-3xl">
-              ${todayRevenue.toLocaleString('es-MX')}
+              ${kpisLoading ? '...' : displayKpis.revenue.toLocaleString('es-MX')}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -367,11 +411,6 @@ export function AppointmentsTab() {
                 </PopoverContent>
               </Popover>
 
-              {selectedDate && (
-                <Button variant="ghost" size="icon" onClick={() => setSelectedDate(undefined)} title="Limpiar fecha">
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
             </div>
           </div>
         </CardHeader>
@@ -386,7 +425,22 @@ export function AppointmentsTab() {
                 className="pl-10"
               />
             </div>
-            <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
+            <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
+              <SelectTrigger className="w-full sm:w-[220px]">
+                <SelectValue placeholder="Filtrar por empleado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los empleados</SelectItem>
+                {employees.map((employee) => (
+                  <SelectItem key={employee.id} value={employee.id}>
+                    {employee.user?.firstName && employee.user?.lastName
+                      ? `${employee.user.firstName} ${employee.user.lastName}`
+                      : employee.position || 'Empleado'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={(value) => setFilterStatus(value)}>
               <SelectTrigger className="w-full sm:w-[200px]">
                 <SelectValue placeholder="Filtrar por estado" />
               </SelectTrigger>
